@@ -21,7 +21,7 @@ Megazar21 software
 #include <LoRa_E32.h>
 
 // Cansat configuration
-#define COMM_MODE 0 // 0 for text-based, 1 for advanced codification with special softw on base station
+#define COMM_MODE 1 // 0 for text-based, 1 for advanced codification with special softw on base station
 #define PACKET_SPEED 2 // Packets per second
 
 // Constants and pinouts
@@ -71,20 +71,34 @@ int rubber_servo_target_angle;
 float lipo_voltage = 3.0;
 float solar_panels_voltage; 
 
-// 416 bits max!
-struct tx_packet { // The sructure of the Lancelot TX data packets
-  unsigned int unix_time; // 32 bit packet identifier by unix time
-  int temperature; // 16 bit multiplied by 100
-  unsigned int pressure; // 32 bit
-  unsigned int humidity; // 16 bit multiplied by 2 
-  float latitude; // 32 bit
-  //float latitude; // 32 bit
-  float longitude; // 32 bit
-  int GPS_altitude; // 32 bit bit multiplied by 15
-  uint8_t lipo_voltage; // 8 bit mutliplied by 50
-  
- };
 
+struct tx_packet { // The sructure of the Lancelot TX data packets
+  unsigned int protocol = 0x78563412;
+  unsigned int time;
+  unsigned int temperature; 
+  unsigned int pressure; 
+  unsigned int humidity; 
+  unsigned int latitude; 
+  unsigned int longitude; 
+  unsigned int GPS_altitude;
+  unsigned int sattelites;
+  unsigned int lipo_voltage; 
+ };
+ tx_packet state;
+
+tx_packet create_packet() {
+  tx_packet result;
+  result.time = millis();
+  result.temperature = temperature * 100 + 10000;
+  result.pressure = pressure * 10;
+  result.humidity = humidity * 100;
+  result.latitude = latitud*(100000) + (1000000000);
+  result.longitude = longitud*(100000) + (1000000000);
+  result.GPS_altitude = GPS_altitude;
+  result.sattelites = sat;
+  result.lipo_voltage = lipo_voltage * 100;
+  return result;
+}
 // Helper functions declaration:
 
 void setLed(int8_t r, int8_t g, int8_t b) { // Debugging LED
@@ -277,7 +291,7 @@ void loop() {
     packet += String("\r\nGAt=") + GPS_altitude;
     packet += String("\r\nBAT=") + lipo_voltage;
     packet += String("\r\n");
-    ss_ebyte.print(packet);
+
     Serial.print(packet);
     while (ss_ebyte.available()) {
       ss_ebyte.read();
@@ -291,6 +305,25 @@ void loop() {
   } // TODO: advanced comm mode
   else {
 
+  byte *ptr;
+  tx_packet actual_packet = create_packet();
+  ptr = (byte*)&actual_packet;
+  byte counter = 40;//sizeof(actual_packet);
+  do
+  {
+    byte m = (byte)*ptr;
+    ss_ebyte.write(m);
+    //Serial.print(m, HEX);
+    String actual = String(m,HEX);
+    if (actual.length() == 1) {
+      actual = "0" + actual;
+    }
+    //Serial.print(actual);
+    ptr++;
+    counter--;
+  }
+  while(counter != 0);
+  Serial.println();
     
   }
   
