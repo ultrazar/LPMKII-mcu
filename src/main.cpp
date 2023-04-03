@@ -20,6 +20,7 @@ Megazar21 software
 #define E32_TTL_1W
 #include <LoRa_E32.h>
 
+#include <InterComm.cpp>
 
 
 // Cansat configuration
@@ -72,8 +73,6 @@ int rubber_servo_angle; // 100º cuts the rubber (to cut: 80º-120º)
 int rubber_servo_target_angle;
 float lipo_voltage = 3.0;
 float solar_panels_voltage; 
-
-
 
 
 
@@ -178,14 +177,30 @@ void update_GPS() {
     GPS_altitude = gps.altitude() / 100.0;
   }
 }
+bool tempConfigSent = false;
 
-void servos_task(uint32_t time) { // The servos needs a slow speed to actually work
+void runtimeTasks(uint32_t time) { // To avoid the use of delay()
   int actual = millis();
   while ((actual + time) > millis()) {
     if (rubber_servo_angle != rubber_servo_target_angle) {
       rubber_servo_angle += max(min((rubber_servo_target_angle - rubber_servo_angle),1),-1);
       rubber_cutter_servo.write(rubber_servo_angle);
     }
+
+    if (serialIteration()) {
+      
+    }
+    if (tempConfigSent == false && millis() > 4000) {
+      tempConfigSent = true;
+
+      Serial.println("Sending config to camera");
+      sendLine("#PING CAMERA");
+      delay(200);
+
+      sendCameraSettigns(true,30,10,100,SIZE_HD,SIZE_VGA,10,30);
+
+    }
+
     delay(20);
   }
 }
@@ -229,9 +244,8 @@ void update_sensor_data() {
 // Main Arduino functions:
 
 void setup() {
-  // començar totes les comunicacions
+  // començar les comunicacions
   Serial.begin(115200); // USB Serial
-  Serial1.begin(115200); // ESP32-CAM
   //ss_GPS.begin(9600); // GPS
   e32ttl.begin(); // EBYTE manager
   //ss_GPS.listen();
@@ -248,7 +262,6 @@ void setup() {
 
   delay(2000); // Esperar a que la comunicació serial per debugging estigui oberta
   
-  //Nice ascii title
   Serial.println("                   __                              __         \r\n  ____ _____  ____/ /________  ____ ___  ___  ____/ /___ _    \r\n / __ `/ __ \\/ __  / ___/ __ \\/ __ `__ \\/ _ \\/ __  / __ `/    \r\n/ /_/ / / / / /_/ / /  / /_/ / / / / / /  __/ /_/ / /_/ /     \r\n\\__,_/_/ /_/\\__,_/_/   \\____/_/ /_/ /_/\\___/\\__,_/\\__,_/      \r\n    ____  ___   ___________   ______   __  _____ __ ________  \r\n   / __ \\/   | / ____/  _/ | / /  _/  /  |/  / //_//  _/  _/  \r\n  / /_/ / /| |/ /    / //  |/ // /   / /|_/ / ,<   / / / /    \r\n / ____/ ___ / /____/ // /|  // /   / /  / / /| |_/ /_/ /     \r\n/_/   /_/  |_\\____/___/_/ |_/___/  /_/  /_/_/ |_/___/___/");
   
   //ss_ebyte.println("Andromeda PACINI MKII is alive!");
@@ -279,7 +292,8 @@ void setup() {
 
   Serial.println("Setup finished, running loop...");
   setLed(0,0,255);
-
+  Serial1.begin(115200);
+  startInterComm();
     
 }
 
@@ -336,7 +350,7 @@ void loop() {
   setLed(0,0,255);
   digitalWrite(BUZZER,LOW);
   digitalWrite(LEGS_MOTOR, HIGH);
-  servos_task(1000 / PACKET_SPEED);
+  runtimeTasks(1000 / PACKET_SPEED);
   digitalWrite(BUZZER,HIGH);
   digitalWrite(LEGS_MOTOR, LOW);
 }
