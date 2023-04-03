@@ -20,6 +20,8 @@ Megazar21 software
 #define E32_TTL_1W
 #include <LoRa_E32.h>
 
+
+
 // Cansat configuration
 #define COMM_MODE 1 // 0 for text-based, 1 for advanced codification with special softw on base station
 #define PACKET_SPEED 2 // Packets per second
@@ -70,6 +72,10 @@ int rubber_servo_angle; // 100º cuts the rubber (to cut: 80º-120º)
 int rubber_servo_target_angle;
 float lipo_voltage = 3.0;
 float solar_panels_voltage; 
+
+
+
+
 
 
 struct tx_packet { // The sructure of the Lancelot TX data packets
@@ -225,10 +231,10 @@ void update_sensor_data() {
 void setup() {
   // començar totes les comunicacions
   Serial.begin(115200); // USB Serial
-  //Serial1.begin(115200); // ESP32-CAM
-  ss_GPS.begin(9600); // GPS
+  Serial1.begin(115200); // ESP32-CAM
+  //ss_GPS.begin(9600); // GPS
   e32ttl.begin(); // EBYTE manager
-  ss_GPS.listen();
+  //ss_GPS.listen();
 
   pinMode(BUZZER, OUTPUT);
   pinMode(GPS_POWER, OUTPUT);
@@ -291,7 +297,7 @@ void loop() {
     packet += String("\r\nGAt=") + GPS_altitude;
     packet += String("\r\nBAT=") + lipo_voltage;
     packet += String("\r\n");
-
+    ss_ebyte.print(packet);
     Serial.print(packet);
     while (ss_ebyte.available()) {
       ss_ebyte.read();
