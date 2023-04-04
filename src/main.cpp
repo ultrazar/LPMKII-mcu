@@ -76,34 +76,6 @@ float solar_panels_voltage;
 
 
 
-
-struct tx_packet { // The sructure of the Lancelot TX data packets
-  unsigned int protocol = 0x78563412;
-  unsigned int time;
-  unsigned int temperature; 
-  unsigned int pressure; 
-  unsigned int humidity; 
-  unsigned int latitude; 
-  unsigned int longitude; 
-  unsigned int GPS_altitude;
-  unsigned int sattelites;
-  unsigned int lipo_voltage; 
- };
- tx_packet state;
-
-tx_packet create_packet() {
-  tx_packet result;
-  result.time = millis();
-  result.temperature = temperature * 100 + 10000;
-  result.pressure = pressure * 10;
-  result.humidity = humidity * 100;
-  result.latitude = latitud*(100000) + (1000000000);
-  result.longitude = longitud*(100000) + (1000000000);
-  result.GPS_altitude = GPS_altitude;
-  result.sattelites = sat;
-  result.lipo_voltage = lipo_voltage * 100;
-  return result;
-}
 // Helper functions declaration:
 
 void setLed(int8_t r, int8_t g, int8_t b) { // Debugging LED
@@ -187,20 +159,6 @@ void runtimeTasks(uint32_t time) { // To avoid the use of delay()
       rubber_cutter_servo.write(rubber_servo_angle);
     }
 
-    if (serialIteration()) {
-      
-    }
-    if (tempConfigSent == false && millis() > 4000) {
-      tempConfigSent = true;
-
-      Serial.println("Sending config to camera");
-      sendLine("#PING CAMERA");
-      delay(200);
-
-      sendCameraSettigns(true,30,10,100,SIZE_HD,SIZE_VGA,10,30);
-
-    }
-
     delay(20);
   }
 }
@@ -248,6 +206,8 @@ void setup() {
   Serial.begin(115200); // USB Serial
   //ss_GPS.begin(9600); // GPS
   e32ttl.begin(); // EBYTE manager
+
+  ebyte = &ss_ebyte;
   //ss_GPS.listen();
 
   pinMode(BUZZER, OUTPUT);
@@ -255,6 +215,7 @@ void setup() {
   pinMode(LIPO_VOLTAGE, INPUT);
   pinMode(SOLAR_PANELS_VOLTAGE, INPUT);
   pinMode(LEGS_MOTOR, OUTPUT);
+  
   
   onePixel.begin();  // Start the NeoPixel object for the LED
   setLed(255,255,0); // YELLOW for startup
@@ -297,7 +258,48 @@ void setup() {
     
 }
 
-void loop() {
+typedef enum {
+  PHASE_AIR,
+  PHASE_STATIONED
+} phaseNum;
+
+phaseNum actualPhase = PHASE_AIR;
+
+/*
+------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------PHASE AIR CODE------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------
+*/
+
+struct tx_packet { // The sructure of the Lancelot TX data packets
+  unsigned int protocol = 0x78563412;
+  unsigned int time;
+  unsigned int temperature; 
+  unsigned int pressure; 
+  unsigned int humidity; 
+  unsigned int latitude; 
+  unsigned int longitude; 
+  unsigned int GPS_altitude;
+  unsigned int sattelites;
+  unsigned int lipo_voltage; 
+ };
+ tx_packet state;
+
+tx_packet create_packet() {
+  tx_packet result;
+  result.time = millis();
+  result.temperature = temperature * 100 + 10000;
+  result.pressure = pressure * 10;
+  result.humidity = humidity * 100;
+  result.latitude = latitud*(100000) + (1000000000);
+  result.longitude = longitud*(100000) + (1000000000);
+  result.GPS_altitude = GPS_altitude;
+  result.sattelites = sat;
+  result.lipo_voltage = lipo_voltage * 100;
+  return result;
+}
+
+void phaseAirLoop() {
   setLed(0,255,0);
   update_sensor_data();
   ss_ebyte.listen();
@@ -343,7 +345,14 @@ void loop() {
     counter--;
   }
   while(counter != 0);
-  Serial.println();
+
+    if (ss_ebyte.available()) { // Receive "PHASE_STATIONED" to change the device operation mode
+      String message = ss_ebyte.readString();
+      if (message == "PHASE_STATIONED") {
+        actualPhase = PHASE_STATIONED;
+        ss_ebyte.println("#STATIONED MODE ACTIVATED");
+      }
+    }
     
   }
   
@@ -353,4 +362,41 @@ void loop() {
   runtimeTasks(1000 / PACKET_SPEED);
   digitalWrite(BUZZER,HIGH);
   digitalWrite(LEGS_MOTOR, LOW);
+}
+
+/*
+------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------PHASE STATIONED CODE-------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+
+
+void phaseStationedLoop() {
+  serialIteration();
+  ebyteIteration();
+  if (tempConfigSent == false && millis() > 4000) {
+    tempConfigSent = true;
+
+    printDebug("Sending config to camera");
+    sendLine("#PING CAMERA");
+    delay(200);
+
+    sendCameraSettigns(true,30,10,100,SIZE_HD,SIZE_VGA,10,30);
+
+  }
+  delay(20);
+}
+
+void loop() {
+  switch (actualPhase) {
+    case PHASE_AIR:
+      phaseAirLoop();
+      break;
+    case PHASE_STATIONED:
+      phaseStationedLoop();
+      break;
+  }
 }
