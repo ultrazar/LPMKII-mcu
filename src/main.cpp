@@ -111,6 +111,8 @@ void configure_ebyte() { // Set the ebyte to the previously defined configuratio
     //printParameters(configuration);
     // DEFINE EBYTE PARAMETERS HERE:
     configuration.OPTION.transmissionPower = POWER_21; //  0.2W
+    configuration.SPED.uartBaudRate = UART_BPS_19200;
+
     //configuration.OPTION.
     ResponseStatus r = e32ttl.setConfiguration(configuration, WRITE_CFG_PWR_DWN_SAVE); // Save this configuration in ebyte's flash
   
@@ -263,7 +265,7 @@ typedef enum {
   PHASE_STATIONED
 } phaseNum;
 
-phaseNum actualPhase = PHASE_AIR;
+phaseNum actualPhase = PHASE_STATIONED;
 
 /*
 ------------------------------------------------------------------------------------------------------------------------------------

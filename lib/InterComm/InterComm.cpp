@@ -93,7 +93,7 @@ RX section
 */
 
 void waitTransceiver(){
-    while (digitalRead(EBYTE_AUX) == 0) {delay(1);};
+    while (digitalRead(EBYTE_AUX) == LOW) {delay(1);};
 }
 
 byte fileRXBuffer[65536];
@@ -108,7 +108,9 @@ void newLine(String line)  {
             printDebug("CAM-ERROR: " + line.substring(1));
             break;
         case 'R': // Command response
+            waitTransceiver();
             ebyte->println(line);
+            waitTransceiver();
             break;
         case 'D': // FILE TRANSER STARTS
             // DW<FileSize>
@@ -140,10 +142,10 @@ void newLine(String line)  {
                 ebyte->write(fileRXBuffer[position]);
                 position++;
                 packetSize++;
-                if (packetSize == 100) {
+                if (packetSize == 250) {
                     waitTransceiver();
                     packetSize = 0;
-                    delay(200);
+                    delay(100);
                 }
             }
             waitTransceiver();
