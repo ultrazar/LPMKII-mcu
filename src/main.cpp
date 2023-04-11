@@ -36,8 +36,8 @@ Megazar21 software
 #define EBYTE_M0 13
 #define EBYTE_AUX 11
 #define BUZZER 14
-#define CAMERA_SRV 15 // 1st servo
-#define RUBBER_CUTTER_PIN 16 // 2nd servo
+#define CAMERA_SRV 16 // 2st servo
+#define RUBBER_CUTTER_PIN 15 // 1st servo
 #define GPS_POWER 17 // Transistor to power on/off the gps module
 #define LIPO_VOLTAGE 18 // Pin connected to the lipo battery through a double-100k ohm resistor
 #define SOLAR_PANELS_VOLTAGE 19 // Pin connected to the solar panels output through a double-100k ohm resistor
@@ -58,6 +58,9 @@ SoftwareSerial ss_GPS(GPS_RX, GPS_TX);  // GPS SoftwareSerial
 SoftwareSerial ss_ebyte(EBYTE_RX, EBYTE_TX); // Ebyte SoftwareSerial
 LoRa_E32 e32ttl(&ss_ebyte,11,EBYTE_M0,EBYTE_M1,UART_BPS_RATE_9600); // Ebyte manager
 Servo rubber_cutter_servo;
+Servo legs_controller;
+Servo camera_servo;
+
 
 
 // Definició de variables globals
@@ -153,12 +156,26 @@ void update_GPS() {
 }
 bool tempConfigSent = false;
 
+
+float camera_servo_angle = 900; // 900/1800
+float camera_servo_target_angle = 900;
+
+
 void runtimeTasks(uint32_t time) { // To avoid the use of delay()
   int actual = millis();
   while ((actual + time) > millis()) {
-    if (rubber_servo_angle != rubber_servo_target_angle) {
+    // rubber servo
+    if (rubber_servo_angle != rubber_servo_target_angle) { 
       rubber_servo_angle += max(min((rubber_servo_target_angle - rubber_servo_angle),1),-1);
       rubber_cutter_servo.write(rubber_servo_angle);
+    }
+    // Camera servo
+    if (camera_servo_angle != camera_servo_target_angle) {
+      camera_servo_angle += max(min(camera_servo_target_angle - camera_servo_angle,2),-2);
+      camera_servo.attach(CAMERA_SRV);
+      camera_servo.write(camera_servo_angle / 10);
+    } else {
+      camera_servo.detach();
     }
 
     delay(20);
@@ -217,6 +234,7 @@ void setup() {
   pinMode(LIPO_VOLTAGE, INPUT);
   pinMode(SOLAR_PANELS_VOLTAGE, INPUT);
   pinMode(LEGS_MOTOR, OUTPUT);
+  pinMode(CAMERA_SRV,OUTPUT);
   
   
   onePixel.begin();  // Start the NeoPixel object for the LED
@@ -235,11 +253,12 @@ void setup() {
     digitalWrite(BUZZER, LOW);
     delay(1000/400);
   }*/
-  tone(BUZZER,4000,500);
+  tone(BUZZER,4000,100);
   digitalWrite(GPS_POWER,HIGH); // encendre el GPS
   
   // Ebyte configurator
-  configure_ebyte();
+  //configure_ebyte();
+  ss_ebyte.begin(19200);
 
 
   // initialize the integrated I2C sensors (mic and proximity/light sensors are innecessary)
@@ -257,15 +276,9 @@ void setup() {
   setLed(0,0,255);
   Serial1.begin(115200);
   startInterComm();
+  digitalWrite(BUZZER,LOW);
     
 }
-
-typedef enum {
-  PHASE_AIR,
-  PHASE_STATIONED
-} phaseNum;
-
-phaseNum actualPhase = PHASE_STATIONED;
 
 /*
 ------------------------------------------------------------------------------------------------------------------------------------
@@ -345,14 +358,21 @@ void phaseAirLoop() {
     //Serial.print(actual);
     ptr++;
     counter--;
-  }
-  while(counter != 0);
+  } while(counter != 0);
 
     if (ss_ebyte.available()) { // Receive "PHASE_STATIONED" to change the device operation mode
       String message = ss_ebyte.readString();
       if (message == "PHASE_STATIONED") {
         actualPhase = PHASE_STATIONED;
+        digitalWrite(BUZZER,LOW);
+        delay(500);
+        waitTransceiver();
         ss_ebyte.println("#STATIONED MODE ACTIVATED");
+        waitTransceiver();
+        ebyte->readString(); // Clean serial buffers to avoid overloading
+        serial->readString();
+        delay(500);
+        return;
       }
     }
     
@@ -362,7 +382,9 @@ void phaseAirLoop() {
   digitalWrite(BUZZER,LOW);
   digitalWrite(LEGS_MOTOR, HIGH);
   runtimeTasks(1000 / PACKET_SPEED);
-  digitalWrite(BUZZER,HIGH);
+  if (buzzerParam) {
+    digitalWrite(BUZZER,HIGH);
+  }
   digitalWrite(LEGS_MOTOR, LOW);
 }
 
@@ -373,23 +395,79 @@ void phaseAirLoop() {
 */
 
 
+typedef enum {
+  LEGS_CLOSED,
+  LEGS_OPENING,
+  LEGS_OPENED,
+  LEGS_CLOSING
+} legsState;
 
-
+legsState legsActualState = LEGS_CLOSED;
+int legsStartTime = 0;
+const int legsTimer = 60000; // milliseconds
 
 void phaseStationedLoop() {
   serialIteration();
   ebyteIteration();
-  if (tempConfigSent == false && millis() > 4000) {
+  
+  if (processParams) {
+    processParams = false;
+    if (legsParam == 0 ) { // && legsActualState == LEGS_OPENED
+      legs_controller.attach(LEGS_MOTOR);
+      legs_controller.write(1);
+      legsActualState = LEGS_CLOSING;
+      legsStartTime = millis();
+    } else if (legsParam == 1 ) { // && legsActualState == LEGS_CLOSED
+      legs_controller.attach(LEGS_MOTOR);
+      legs_controller.writeMicroseconds(180);
+      legsActualState = LEGS_OPENING;
+      legsStartTime = millis();
+    } else if (legsParam == 2) {
+      legs_controller.detach(); // abort
+    }
+    camera_servo_target_angle = srvParam*10;
+    digitalWrite(GPS_POWER,gpsParam);
+    if (ledParam) {
+      onePixel.setBrightness(255);
+    } else {
+      onePixel.setBrightness(0);
+    }
+    onePixel.show();
+    printDebug("Params processed");
+  }
+
+
+    if ( ( millis() - legsStartTime ) > legsTimer) { // if legs timeout
+      legs_controller.detach();
+      switch (legsActualState) {
+      case LEGS_CLOSING:
+        legsActualState = LEGS_CLOSED;
+        break;
+      case LEGS_OPENING:
+        legsActualState = LEGS_OPENED;
+      default:
+        break;
+      }
+    }
+  // update legs "servo"
+
+
+
+  if (tempConfigSent == false && millis() > 4000 && false) { // Auto activate camera after startup
     tempConfigSent = true;
 
-    printDebug("Sending config to camera");
+    printDebug("Sending default config to camera");
     sendLine("#PING CAMERA");
     delay(200);
 
-    sendCameraSettigns(true,30,10,100,SIZE_HD,SIZE_VGA,10,30);
+    sendCameraSettigns(true,3600,3600,100,SIZE_HD,SIZE_VGA,10,30);
 
   }
-  delay(20);
+  if (buzzerParam) {
+    digitalWrite(BUZZER,HIGH);
+  }
+  runtimeTasks(20);
+  digitalWrite(BUZZER,LOW);
 }
 
 void loop() {

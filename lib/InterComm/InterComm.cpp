@@ -41,6 +41,13 @@ typedef enum {
     SIZE_UXGA,     // 1600x1200
 } imageSize;
 
+typedef enum {
+  PHASE_AIR,
+  PHASE_STATIONED
+} phaseNum;
+
+phaseNum actualPhase = PHASE_STATIONED;
+
 void startInterComm()  {
     serial->setTimeout(10);
 
@@ -198,8 +205,9 @@ The available commands that LPMKII can process in the stationed phase are:
 
   SETTER_COMMANDS:
 
-  CAMERA      - SYNTAX: /C;<bool enable>;<interval_high>;<interval_low>;<unix_time>;<camera_res_high>;<camera_res_low>,<jpeg_quality_high>;<jpeg_quality_low> 
+  CAMERA      - SYNTAX: /C<bool enable>;<interval_high>;<interval_low>;<unix_time>;<camera_res_high>;<camera_res_low>,<jpeg_quality_high>;<jpeg_quality_low> 
               - DESCRIPTION: Sets the camera module settings:
+              - RESPONSE: !<ErrorNum>
 
                 bool enable, 
                 unsigned short int interval_high, 
@@ -209,6 +217,23 @@ The available commands that LPMKII can process in the stationed phase are:
                 imageSize camera_res_low,
                 int jpeg_quality_high,
                 int jpeg_quality_low
+    
+    PHASE_AIR   - SYNTAX: /A
+                - DESCRIPTION: Change the pase to PHASE_AIR
+                - RESPONSE: "PHASE_AIR"
+    
+    SYSTEMS     - SYNTAX: /S;<LEGS>;<SRV>;<BUZZER>;<LED;<GPS>;<FREQ>;<TX_PWR>;
+                
+                bool LEGS
+                int SRV;
+                bool BUZZER;
+                bool LED;
+                bool GPS;
+                int FREQ;
+                int TX_PWR;
+
+                - DESCRIPTION: Set the systems configuration
+                - RESPONSE: !<ErrorNum>
 
   GETTER_COMMANDS:
 
@@ -220,7 +245,7 @@ The available commands that LPMKII can process in the stationed phase are:
               - DESCRIPTION: Download a file from the microSD card of ESP32-CAM, the fileSize should be previously retrieved with /LS
               - RESPONSE: (Raw data of undetermined size)
 
-  SENSORS     - SYNTAX: /S
+  (TODO) DATA     - SYNTAX: /D
               - DESCRIPTION: Ask the relevant sensors data 
               - RESPONSE: "R2:Temp;Humidity;Pressure;Battery;SolarPanels"
 */
@@ -229,6 +254,50 @@ The available commands that LPMKII can process in the stationed phase are:
 RX 
 */
 
+void splitString(String str, char separator, String arr[], int size) {
+  int lastIndex = 0;
+  int arrIndex = 0;
+  
+  for (int i = 0; i < str.length(); i++) {
+    if (str.charAt(i) == separator) {
+      arr[arrIndex++] = str.substring(lastIndex, i);
+      lastIndex = i + 1;
+      
+      if (arrIndex >= size) {
+        break;
+      }
+    }
+  }
+  
+  if (lastIndex < str.length() && arrIndex < size) {
+    arr[arrIndex] = str.substring(lastIndex);
+  }
+}
+
+bool processParams = false;
+int legsParam = 0;
+int srvParam = 0;
+bool buzzerParam = false;
+bool ledParam = false;
+bool gpsParam = true;
+int freqParam = 0;
+int tx_pwrParam = 0;
+
+void setSystemParams(String line) { // <LEGS>;<SRV>;<BUZZER>;<LED;<GPS>;<FREQ>;<TX_PWR>;
+    String params[8];
+    splitString(line,';',params,8);
+    legsParam = params[0].toInt();
+    srvParam = params[1].toInt();
+    buzzerParam = params[2].charAt(0) == '1';
+    ledParam = params[3].charAt(0) == '1';
+    gpsParam = params[4].charAt(0) == '1';
+    freqParam = params[5].toInt();
+    tx_pwrParam = params[6].toInt();
+
+    processParams = true;
+
+}
+
 void newBaseLine(String line) {
     switch (line.charAt(0)) {
         case '#': // Debug print
@@ -236,13 +305,27 @@ void newBaseLine(String line) {
             break;
         case '/': // Error
             switch (line.charAt(1)) {
-                case 'L':
+                case 'L': // LS Request
                     sendListFilesRequest();
                     break;
-                case 'D': // /D;<FileName>
+                case 'D': // DOWNLOAD /D;<FileName>
                     printDebug(line.substring(3));
                     delay(100);
                     sendLine("D" + line.substring(3));
+                    break;
+                case 'A': // PHASE_AIR
+                    delay(500);
+                    actualPhase = PHASE_AIR;
+                    waitTransceiver(); // Send that we are going to send a file of x size
+                    ebyte->print("PHASE_AIR\n"); // line is DW<FileSize>
+                    waitTransceiver();
+                    delay(500);
+                    break;
+                case 'C': // Set the camera config (mcu is repeater)
+                    sendLine(line.substring(1));
+                    break;
+                case 'S': // Set the systems config
+                    setSystemParams(line.substring(3));
                     break;
             }
             break;
